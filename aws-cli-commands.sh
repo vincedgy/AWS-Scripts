@@ -23,3 +23,11 @@ do
     aws iam remove-role-from-instance-profile --instance-profile-name $INSTANCE_PROFILE_NAME --role-name $ROLE_NAME
     aws iam delete-instance-profile --instance-profile-name $INSTANCE_PROFILE_NAME
 done
+
+# Create a CloudWatchLog export to S3 task (http://docs.aws.amazon.com/cli/latest/reference/logs/create-export-task.html)
+aws logs create-export-task --task-name "export-role-application" --log-group-name "<your loggroup name>" --from 1496793600000 --to 1497690280000 --destination "<your bucket>"
+
+# EPOCH converter : https://www.epochconverter.com/
+
+# Control the tasks
+aws logs describe-export-tasks
