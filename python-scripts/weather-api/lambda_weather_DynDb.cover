@@ -1,0 +1,122 @@
+       """
+       weather.py : An AWS lambda fonction for getting weather information from internet
+       Author : Vincent DAGOURY
+       Date : 2017-04-27
+       Description :
+       This lambda will grab weather report from api.openweathermap.org for a location name.BaseException.BaseException
+       It will save the content of the response in DynamoDB and will serve back this data from DynamoDB if someone request it again
+       The purpose of this lambda is to be assembled with API Gateway.BaseException
+       This lambda has been first writen durint TIAD Camp organized by D2Si on 2017/04/27 in Paris
+       Enjoy !
+       
+       Warning : Please use your own API key from api.openweathermap.org first !!
+       
+       TODO :
+       - Safely fail in case of timeout
+       - Externalize OpenWeatherMap.org API KEY
+    1: """
+    1: from __future__ import print_function  # Python 2/3 compatibility
+       
+    1: import json
+    1: import logging
+    1: import urllib
+    1: import urllib2
+    1: import boto3
+    1: from botocore.exceptions import ClientError
+       
+    1: LOGGING_LEVEL = 'ERROR'
+    1: logging.basicConfig(
+    1:     level = getattr(logging, LOGGING_LEVEL),
+    1:     format = '%(asctime)s \033[0;34m%(name)-12s \033[0;33m%(levelname)-8s \033[0;37m%(message)s\033[0m',
+    1:     datefmt = '\033[0;31m%m/%d/%Y %I:%M:%S %p\033[0m'
+       )
+       
+       ## automate http://api.openweathermap.org/data/2.5/forecast?id=524901&APPID=eb6397a6776974b07c1abc35f64af1a2
+    1: API_URL = 'http://api.openweathermap.org/data/2.5/forecast'
+    1: API_KEY = 'eb6397a6776974b07c1abc35f64af1a2'
+       
+       ## Uncomment If you use DynDb localy for testing
+    1: dynamodb = boto3.resource('dynamodb', endpoint_url='http://localhost:8000')
+       ##dynamodb = boto3.resource("dynamodb", region_name='eu-west-1')
+    1: table = dynamodb.Table('weather')
+       
+    1: def get_weather(q):
+           """xxx"""
+    1:     data = {}
+    1:     try:
+    1:         response = table.get_item(Key={'location':q})
+    1:         data = response['Item']
+               logging.info("GetItem for DynDB succeeded.")
+               #print(json.dumps(data, indent=4))
+    1:     except (Exception, ClientError) as error:
+    1:         logging.error(error)
+           finally:
+    1:         return data
+       
+       #
+    1: def save_weather_data(q, data):
+           """xxx"""
+    1:     if q is None or data is None:
+               return
+           else:
+    1:         try:
+    1:             item = {}
+    1:             item['location'] = q
+    1:             item['list']={}
+   38:             for i in xrange(0, len(data['list'])):
+   37:                 item['list'][i] = data['list'][i]
+   37:                 i += 1
+    1:             item['city'] = {}
+    1:             item['city']['country'] = data['city']['country']
+    1:             item['city']['id'] = data['city']['id']
+    1:             item['city']['coord']={}
+    1:             item['city']['coord']['lat'] = str(data['city']['coord']['lat'])
+    1:             item['city']['coord']['lon'] = str(data['city']['coord']['lon'])
+    1:             item['cod'] = data['cod']
+    1:             item['cnt'] = data['cnt']
+                   #item['list'] = json.dumps(data['list'])
+    1:             response = table.put_item(Item = item)
+                   if response['ResponseMetadata']['HTTPStatusCode'] == 200:
+                       logging.info("PutItem succeeded:")
+                       logging.debug(json.dumps(item, indent=4))
+    1:         except (Exception, ClientError) as error:
+    1:             logging.error(error)
+               finally:
+    1:             return data
+           return
+       #
+    1: def lambda_handler(event, context):
+           """xxx"""
+           # params represent the Query parameters sent to the API
+    1:     params = {}
+    1:     params['q'] = event['queryStringParameters']['q']
+    1:     params['APPID'] = API_KEY
+           # Test if location is stored in DynamoDB
+    1:     logging.info('Looking for weather info for location ' + params['q'] + ' from DynDb.')
+    1:     data = get_weather(params['q'])
+    1:     content = ''
+           # If it's not, we ask for the weather service
+    1:     if data is None or len(data) == 0:
+    1:         logging.info('No data -> Getting weather for location ' + params['q'] + ' from the Web.')
+    1:         url_values = urllib.urlencode(params)
+    1:         full_url = API_URL + '?' + url_values
+    1:         response = urllib2.urlopen(full_url)
+    1:         content = response.read()
+    1:         data = json.loads(content)
+    1:         if content is not None and len(content) > 1:
+    1:             logging.info('Saving data for location ' + params['q'] + ' to DynDb.')
+    1:             save_weather_data(params['q'], json.loads(content))
+               else:
+                   logging.info('No data found for location ' + + params['q'])
+    1:     logging.info('Returning result (even if it''s empty) and ending.')
+    1:     return {
+    1:         "statusCode": 200,
+    1:         "headers": {},
+    1:         "body": data
+           }
+       
+    1: if __name__ == '__main__':
+    1:     logging.info('Starting')
+    1:     EVENT = {'queryStringParameters':{'q':'Orleans'}}
+    1:     CONTEXT = ''
+    1:     logging.info(lambda_handler(EVENT, CONTEXT))
