@@ -1,53 +1,48 @@
-#!/usr/bin/env python
-import os, sys
-import math
-import boto
+""" """
+# Create a big file (100 Mb): 
+# dd if=/dev/zero of=/tmp/bigfile bs=1024 count=0 seek=$[1024*100]
+import os
+import sys
+import threading
+import boto3
+from boto3.s3 import transfer 
 
-AWS_ACCESS_KEY_ID = ''
-AWS_SECRET_ACCESS_KEY = ''
+class ProgressPercentage(object):
+    def __init__(self, filename):
+        self._filename = filename
+        self._size = float(os.path.getsize(filename))
+        self._seen_so_far = 0
+        self._lock = threading.Lock()
 
-def upload_file(s3, bucketname, file_path):
+    def __call__(self, bytes_amount):
+        # To simplify we'll assume this is hooked up
+        # to a single filename.
+        with self._lock:
+            self._seen_so_far += bytes_amount
+            percentage = (self._seen_so_far / self._size) * 100
+            sys.stdout.write(
+                "\r%s  %s / %s  (%.2f%%)" % (
+                    self._filename, 
+                    self._seen_so_far, 
+                    self._size,
+                    percentage))
+            sys.stdout.flush()  
 
-        b = s3.get_bucket(bucketname)
+# ---------------------------------------------------------------------
+# Main
+if __name__ == '__main__':
+    client = boto3.client('s3', 'eu-west-1')
+    config = transfer.TransferConfig(
+        multipart_threshold=8 * 1024 * 1024,
+        max_concurrency=10,
+        num_download_attempts=10,
+    )
 
-        filename = os.path.basename(file_path)
-        k = b.new_key(filename)
+    uploading = transfer.S3Transfer(client, config)
+    uploading.upload_file(
+        '/tmp/bigfile',
+        'e-attestations-ova',
+        'bigfile',
+        callback=ProgressPercentage('/tmp/bigfile')
+        )
 
-        mp = b.initiate_multipart_upload(filename)
-
-        source_size = os.stat(file_path).st_size
-        bytes_per_chunk = 5000*1024*1024
-        chunks_count = int(math.ceil(source_size / float(bytes_per_chunk)))
-
-        for i in range(chunks_count):
-                offset = i * bytes_per_chunk
-                remaining_bytes = source_size - offset
-                bytes = min([bytes_per_chunk, remaining_bytes])
-                part_num = i + 1
-
-                print "uploading part " + str(part_num) + " of " + str(chunks_count)
-
-                with open(file_path, 'r') as fp:
-                        fp.seek(offset)
-                        mp.upload_part_from_file(fp=fp, part_num=part_num, size=bytes)
-
-        if len(mp.get_all_parts()) == chunks_count:
-                mp.complete_upload()
-                print "upload_file done"
-        else:
-                mp.cancel_upload()
-                print "upload_file failed"
-
-if __name__ == "__main__":
-
-        if len(sys.argv) != 3:
-                print "usage: python s3upload.py bucketname filepath"
-                exit(0)
-
-        bucketname = sys.argv[1]
-
-        filepath = sys.argv[2]
-
-        s3 = boto.connect_s3(AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
-
-        upload_file(s3, bucketname, filepath)
